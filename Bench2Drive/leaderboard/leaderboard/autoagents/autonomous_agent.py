@@ -98,7 +98,7 @@ class AutonomousAgent(object):
         """
         pass
 
-    def __call__(self):
+    def __call__(self, sensors=None):
         """
         Execute the agent call, e.g. agent()
         Returns the next vehicle controls
@@ -116,7 +116,7 @@ class AutonomousAgent(object):
         print('=== [Agent] -- Wallclock = {} -- System time = {} -- Game time = {} -- Ratio = {}x'.format(
             str(wallclock)[:-3], format(wallclock_diff, '.3f'), format(timestamp, '.3f'), format(sim_ratio, '.3f')), flush=True)
 
-        control = self.run_step(input_data, timestamp)
+        control = self.run_step(input_data, timestamp, sensors)
         control.manual_gear_shift = False
 
         return control
@@ -129,6 +129,7 @@ class AutonomousAgent(object):
         """
         Set the plan (route) for the agent
         """
+        self.org_dense_route_gps = global_plan_gps
         self.org_dense_route_world_coord = global_plan_world_coord
         ds_ids = downsample_route(global_plan_world_coord, 50)
         self._global_plan_world_coord = [(global_plan_world_coord[x][0], global_plan_world_coord[x][1]) for x in ds_ids]

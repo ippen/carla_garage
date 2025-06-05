@@ -18,6 +18,7 @@ import time
 import py_trees
 import carla
 import threading
+import os
 
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.timer import GameTime
@@ -26,6 +27,8 @@ from srunner.scenariomanager.watchdog import Watchdog
 from leaderboard.autoagents.agent_wrapper_local import AgentWrapperFactory, AgentError
 from leaderboard.envs.sensor_interface import SensorReceivedNoData
 from leaderboard.utils.result_writer import ResultOutputProvider
+
+LOQUITO_RECORDING_DIR = os.getenv("LOQUITO_RECORDING_DIR")
 
 
 class ScenarioManager(object):
@@ -103,13 +106,14 @@ class ScenarioManager(object):
         self._watchdog = None
         self._agent_watchdog = None
 
-    def load_scenario(self, scenario, agent, route_index, rep_number):
+    def load_scenario(self, route_date_string, scenario, agent, route_index, rep_number):
         """
         Load a new scenario
         """
 
         GameTime.restart()
         self._agent_wrapper = AgentWrapperFactory.get_wrapper(agent)
+        self.route_date_string = route_date_string
         self.route_index = route_index
         self.scenario = scenario
         self.scenario_tree = scenario.scenario_tree
@@ -123,6 +127,12 @@ class ScenarioManager(object):
         # py_trees.display.render_dot_tree(self.scenario_tree)
 
         self._agent_wrapper.setup_sensors(self.ego_vehicles[0])
+
+
+        if LOQUITO_RECORDING_DIR:
+            time_str = time.strftime("%Y-%m-%d_%H-%M-%S")
+            self.recording_dir = os.path.join(LOQUITO_RECORDING_DIR, "scenario", time_str, route_date_string)
+            os.makedirs(self.recording_dir, exist_ok=True)
 
     def build_scenarios_loop(self, debug):
         """
@@ -196,11 +206,31 @@ class ScenarioManager(object):
             py_trees.blackboard.Blackboard().set("AV_control", ego_action, overwrite=True)
             self.scenario_tree.tick_once()
 
+            if LOQUITO_RECORDING_DIR:
+                self.compute_duration_time()
+                # Update live statistics
+                self._statistics_manager.compute_route_statistics(
+                    self.route_date_string,
+                    self.route_index,
+                    self.scenario_duration_system,
+                    self.scenario_duration_game,
+                    failure_message=""
+                )
+
+                self._statistics_manager.write_live_results_json(
+                    self.route_index,
+                    self.ego_vehicles[0].get_velocity().length(),
+                    ego_action,
+                    self.ego_vehicles[0].get_location(),
+                    self.recording_dir
+                )
+
             if self._debug_mode > 1:
                 self.compute_duration_time()
 
                 # Update live statistics
                 self._statistics_manager.compute_route_statistics(
+                    self.route_date_string,
                     self.route_index,
                     self.scenario_duration_system,
                     self.scenario_duration_game,
@@ -228,11 +258,11 @@ class ScenarioManager(object):
                                                         #   carla.Rotation(pitch=-90)))
             
             # For third-person view
-            # # location = ego_trans.transform(carla.Location(x=-4.5, z=2.3))
-            # # self._spectator.set_transform(carla.Transform(location, carla.Rotation(pitch=-15.0, yaw=ego_trans.rotation.yaw)))
+            location = ego_trans.transform(carla.Location(x=-6.0, z=3.0))
+            self._spectator.set_transform(carla.Transform(location, carla.Rotation(pitch=-15.0, yaw=ego_trans.rotation.yaw)))
             
             # For bird's eye view
-            self._spectator.set_transform(carla.Transform(ego_trans.location + carla.Location(z=30), carla.Rotation(pitch=-90)))
+            #self._spectator.set_transform(carla.Transform(ego_trans.location + carla.Location(z=30), carla.Rotation(pitch=-90)))
 
     def get_running_status(self):
         """

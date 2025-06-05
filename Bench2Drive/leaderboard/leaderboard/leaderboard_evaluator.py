@@ -41,6 +41,7 @@ import subprocess
 import time
 import random
 from datetime import datetime
+import pathlib
 
 sensors_to_icons = {
     'sensor.camera.rgb':        'carla_camera',
@@ -49,7 +50,10 @@ sensors_to_icons = {
     'sensor.other.gnss':        'carla_gnss',
     'sensor.other.imu':         'carla_imu',
     'sensor.opendrive_map':     'carla_opendrive_map',
-    'sensor.speedometer':       'carla_speedometer'
+    'sensor.speedometer':       'carla_speedometer',
+    'sensor.egolocation':       'carla_egolocation',
+    'sensor.camera.semantic_segmentation': 'carla_camera', # for datagen
+    'sensor.camera.depth':      'carla_camera', # for datagen
 }
 
 import socket
@@ -167,7 +171,7 @@ class LeaderboardEvaluator(object):
             return self._agent_watchdog.get_status()
         return False
 
-    def _cleanup(self):
+    def _cleanup(self, results=None):
         """
         Remove and destroy all actors
         """
@@ -178,7 +182,7 @@ class LeaderboardEvaluator(object):
 
         try:
             if self.agent_instance:
-                self.agent_instance.destroy()
+                self.agent_instance.destroy(results)
                 self.agent_instance = None
         except Exception as e:
             print("\n\033[91mFailed to stop the agent:", flush=True)
@@ -299,15 +303,16 @@ class LeaderboardEvaluator(object):
             raise Exception("The CARLA server uses the wrong map!"
                             " This scenario requires the use of map {}".format(town))
 
-    def _register_statistics(self, route_index, entry_status, crash_message=""):
+    def _register_statistics(self, route_date_string, route_index, entry_status, crash_message=""):
         """
         Computes and saves the route statistics
         """
         print("\033[1m> Registering the route statistics\033[0m", flush=True)
         self.statistics_manager.save_entry_status(entry_status)
-        self.statistics_manager.compute_route_statistics(
-            route_index, self.manager.scenario_duration_system, self.manager.scenario_duration_game, crash_message
+        current_stats_record = self.statistics_manager.compute_route_statistics(
+            route_date_string, route_index, self.manager.scenario_duration_system, self.manager.scenario_duration_game, crash_message
         )
+        return current_stats_record
 
     def _load_and_run_scenario(self, args, config):
         """
@@ -345,7 +350,7 @@ class LeaderboardEvaluator(object):
             print(f"\n{traceback.format_exc()}\033[0m", flush=True)
 
             entry_status, crash_message = FAILURE_MESSAGES["Simulation"]
-            self._register_statistics(config.index, entry_status, crash_message)
+            self._register_statistics("empty", config.index, entry_status, crash_message)
             self._cleanup()
             return True
 
@@ -353,6 +358,14 @@ class LeaderboardEvaluator(object):
 
         # Set up the user's agent, and the timer to avoid freezing the simulation
         try:
+            now = datetime.now()
+            # route_string = pathlib.Path(os.environ.get('ROUTES', '')).stem + '_'
+            route_string = pathlib.Path(args.routes).stem + '_'
+            route_string += f'route{config.index}'
+            route_date_string = route_string + '_' + '_'.join(
+                map(lambda x: '%02d' % x, (now.month, now.day, now.hour, now.minute, now.second))
+            )
+            
             self._agent_watchdog = Watchdog(args.timeout)
             self._agent_watchdog.start()
             agent_class_name = getattr(self.module_agent, 'get_entry_point')()
@@ -367,7 +380,7 @@ class LeaderboardEvaluator(object):
             self.agent_instance = agent_class_obj(args.host, args.port, args.debug)
             self.agent_instance.set_global_plan(self.route_scenario.gps_route, self.route_scenario.route)
             args.agent_config = args.agent_config + '+' + save_name
-            self.agent_instance.setup(args.agent_config)
+            self.agent_instance.setup(args.agent_config, route_date_string, self.traffic_manager)
 
             # Check and store the sensors
             if not self.sensors:
@@ -402,9 +415,9 @@ class LeaderboardEvaluator(object):
             print(f"{e}\033[0m\n", flush=True)
 
             entry_status, crash_message = FAILURE_MESSAGES["Agent_init"]
-            self._register_statistics(config.index, entry_status, crash_message)
-            self._cleanup()
-            return True
+            result = self._register_statistics(route_date_string, config.index, entry_status, crash_message)
+            self._cleanup(result)
+            return False
 
         print("\033[1m> Running the route\033[0m", flush=True)
 
@@ -413,7 +426,7 @@ class LeaderboardEvaluator(object):
             # Load scenario and run it
             if args.record:
                 self.client.start_recorder("{}/{}_rep{}.log".format(args.record, config.name, config.repetition_index))
-            self.manager.load_scenario(self.route_scenario, self.agent_instance, config.index, config.repetition_index)
+            self.manager.load_scenario(route_date_string, self.route_scenario, self.agent_instance, config.index, config.repetition_index)
             self.manager.tick_count = 0
             self.manager.run_scenario()
 
@@ -440,12 +453,12 @@ class LeaderboardEvaluator(object):
         try:
             print("\033[1m> Stopping the route\033[0m", flush=True)
             self.manager.stop_scenario()
-            self._register_statistics(config.index, entry_status, crash_message)
+            result = self._register_statistics(route_date_string, config.index, entry_status, crash_message)
 
             if args.record:
                 self.client.stop_recorder()
 
-            self._cleanup()
+            self._cleanup(result)
 
         except Exception:
             print("\n\033[91mFailed to stop the scenario, the statistics might be empty:", flush=True)

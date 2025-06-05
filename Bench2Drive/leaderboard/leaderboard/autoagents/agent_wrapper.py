@@ -18,7 +18,7 @@ import carla
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.timer import GameTime
 
-from leaderboard.envs.sensor_interface import CallBack, OpenDriveMapReader, SpeedometerReader, SensorConfigurationInvalid
+from leaderboard.envs.sensor_interface import CallBack, OpenDriveMapReader, SpeedometerReader, SensorConfigurationInvalid, EgoLocationReader
 from leaderboard.autoagents.autonomous_agent import Track
 from leaderboard.autoagents.ros_base_agent import ROSBaseAgent
 
@@ -35,7 +35,8 @@ QUALIFIER_SENSORS_LIMITS = {
     'sensor.other.gnss': 1,
     'sensor.other.imu': 1,
     'sensor.opendrive_map': 1,
-    'sensor.speedometer': 1
+    'sensor.speedometer': 1,
+    'sensor.egolocation': 1
 }
 SENSORS_LIMITS = {
     'sensor.camera.rgb': 8,
@@ -44,7 +45,10 @@ SENSORS_LIMITS = {
     'sensor.other.gnss': 1,
     'sensor.other.imu': 1,
     'sensor.opendrive_map': 1,
-    'sensor.speedometer': 1
+    'sensor.speedometer': 1,
+    'sensor.egolocation': 1,
+    'sensor.camera.depth': 8, # for data generation
+    'sensor.camera.semantic_segmentation': 8 # for data generation
 }
 ALLOWED_SENSORS = SENSORS_LIMITS.keys()
 
@@ -133,6 +137,7 @@ class AgentWrapper(object):
     """
     _agent = None
     _sensors_list = []
+    sensor_list_names = []
 
     def __init__(self, agent):
         """
@@ -144,7 +149,7 @@ class AgentWrapper(object):
         """
         Pass the call directly to the agent
         """
-        return self._agent()
+        return self._agent(self.sensor_list_names)
 
     def _preprocess_sensor_spec(self, sensor_spec):
         type_ = sensor_spec["type"]
@@ -161,8 +166,14 @@ class AgentWrapper(object):
             attributes['reading_frequency'] = 1 / delta_time
             sensor_location = carla.Location()
             sensor_rotation = carla.Rotation()
+        
+        elif type_ == 'sensor.egolocation':
+            delta_time = CarlaDataProvider.get_world().get_settings().fixed_delta_seconds
+            attributes['reading_frequency'] = 1 / delta_time
+            sensor_location = carla.Location()
+            sensor_rotation = carla.Rotation()
 
-        if type_ == 'sensor.camera.rgb':
+        if type_.startswith('sensor.camera'):
             attributes['image_size_x'] = str(sensor_spec['width'])
             attributes['image_size_y'] = str(sensor_spec['height'])
             attributes['fov'] = str(sensor_spec['fov'])
@@ -172,10 +183,19 @@ class AgentWrapper(object):
             sensor_rotation = carla.Rotation(pitch=sensor_spec['pitch'],
                                              roll=sensor_spec['roll'],
                                              yaw=sensor_spec['yaw'])
+            
+            for attr in ['lens_circle_multiplier', 'lens_circle_falloff', 'chromatic_aberration_intensity', 'chromatic_aberration_offset']:
+                if attr in sensor_spec:
+                    attributes[attr] = str(sensor_spec[attr])
 
         elif type_ == 'sensor.lidar.ray_cast':
             attributes['range'] = str(85)
-            attributes['rotation_frequency'] = str(10)
+            if DATAGEN==1:
+                attributes['rotation_frequency'] = str(sensor_spec['rotation_frequency'])
+                attributes['points_per_second'] = str(sensor_spec['points_per_second'])
+            else:
+                attributes['rotation_frequency'] = str(10)
+                attributes['points_per_second'] = str(600000)
             attributes['channels'] = str(64)
             attributes['upper_fov'] = str(10)
             attributes['lower_fov'] = str(-30)
@@ -251,6 +271,8 @@ class AgentWrapper(object):
                 sensor = OpenDriveMapReader(vehicle, attributes['reading_frequency'])
             elif type_ == 'sensor.speedometer':
                 sensor = SpeedometerReader(vehicle, attributes['reading_frequency'])
+            elif type_ == 'sensor.egolocation':
+                sensor = EgoLocationReader(vehicle, attributes['reading_frequency'])
 
             # These are the sensors spawned on the carla world
             else:
@@ -262,6 +284,7 @@ class AgentWrapper(object):
             # setup callback
             sensor.listen(CallBack(id_, type_, sensor, self._agent.sensor_interface))
             self._sensors_list.append(sensor)
+            self.sensor_list_names.append([sensor_spec['id'], sensor])
 
         # Some sensors miss sending data during the first ticks, so tick several times and remove the data
         for _ in range(10):
@@ -276,7 +299,9 @@ class AgentWrapper(object):
                 self._sensors_list[i].stop()
                 self._sensors_list[i].destroy()
                 self._sensors_list[i] = None
-        self._sensors_list = []
+
+        self._sensors_list.clear()
+        self.sensor_list_names.clear()
 
         # Tick once to destroy the sensors
         CarlaDataProvider.get_world().tick()
@@ -318,3 +343,5 @@ class ROSAgentWrapper(AgentWrapper):
 
         # Tick once to destroy the sensors
         CarlaDataProvider.get_world().tick()
+        self._sensors_list.clear()
+        self.sensor_list_names.clear()

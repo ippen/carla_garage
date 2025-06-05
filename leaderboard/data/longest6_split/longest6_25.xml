@@ -1,6 +1,6 @@
 <routes><route id="25" town="Town05">
       <weathers>
-         <weather route_percentage="0" cloudiness="90.000000" precipitation="15.000000" precipitation_deposits="50.000000" wetness="0.000000" wind_intensity="0.350000" sun_azimuth_angle="135.000000" sun_altitude_angle="75.000000" fog_density="0.000000" fog_distance="0.000000"/>
+         <weather route_percentage="0" cloudiness="20.000000" precipitation="0.000000" precipitation_deposits="0.000000" wetness="0.000000" wind_intensity="0.350000" sun_azimuth_angle="90.000000" sun_altitude_angle="5.000000" fog_density="0.000000" fog_distance="0.000000"/>
       </weathers>
       <waypoints>
          <position x="35.06596755981445" y="115.37467193603516" z="1.52587890625e-05"/>

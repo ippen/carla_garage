@@ -21,6 +21,8 @@ import os
 import sys
 import signal
 import socket
+sys.path.append(os.path.basename(os.getenv("TEAM_AGENT")))
+
 
 from srunner.scenariomanager.carla_data_provider import *
 from srunner.scenariomanager.timer import GameTime
@@ -44,6 +46,7 @@ sensors_to_icons = {
     'sensor.other.imu':         'carla_imu',
     'sensor.opendrive_map':     'carla_opendrive_map',
     'sensor.speedometer':       'carla_speedometer',
+    'sensor.egolocation':       'carla_egolocation',
     'sensor.camera.semantic_segmentation': 'carla_camera', # for datagen
     'sensor.camera.depth':      'carla_camera', # for datagen
 }
@@ -291,7 +294,7 @@ class LeaderboardEvaluator(object):
             print(f"\n{traceback.format_exc()}\033[0m")
 
             entry_status, crash_message = FAILURE_MESSAGES["Simulation"]
-            self._register_statistics(config.index, entry_status, crash_message)
+            self._register_statistics("empty", config.index, entry_status, crash_message)
             self._cleanup()
             return True
 
@@ -370,7 +373,7 @@ class LeaderboardEvaluator(object):
             # Load scenario and run it
             if args.record:
                 self.client.start_recorder("{}/{}_rep{}.log".format(args.record, config.name, config.repetition_index))
-            self.manager.load_scenario(self.route_scenario, self.agent_instance, config.index, config.repetition_index)
+            self.manager.load_scenario(route_date_string, self.route_scenario, self.agent_instance, config.index, config.repetition_index)
             self.manager.run_scenario()
 
         except AgentError:

@@ -13,10 +13,13 @@ from __future__ import print_function
 
 from dictor import dictor
 import math
+import os
+import json
 
 from srunner.scenariomanager.traffic_events import TrafficEventType
 
 from leaderboard.utils.checkpoint_tools import fetch_dict, save_dict
+
 
 PENALTY_VALUE_DICT = {
     # Traffic events that substract a set amount of points.
@@ -69,6 +72,7 @@ ROUND_DIGITS_SCORE = 6
 
 class RouteRecord():
     def __init__(self):
+        self.timestamp = None
         self.index = -1
         self.route_id = None
         self.scenario_name = None
@@ -297,6 +301,70 @@ class StatisticsManager(object):
 
                 f.write(string)
 
+    def write_live_results_json(self, index, ego_speed, ego_control, ego_location, save_dir):
+        """Writes live results to a JSON file"""
+        route_record = self._results.checkpoint.records[index]
+
+        all_events = []
+        if self._scenario:
+            for node in self._scenario.get_criteria():
+                all_events.extend(node.events)
+
+        # Sort by latest first
+        all_events.sort(key=lambda e: e.get_frame(), reverse=True)
+
+        # Filter the last 5 non-ROUTE_COMPLETION events
+        last_events = []
+        for e in all_events:
+            if e.get_type() == TrafficEventType.ROUTE_COMPLETION:
+                continue
+            event_dict = {
+                "type": str(e.get_type()).replace("TrafficEventType.", "")
+            }
+            if e.get_type() in PENALTY_VALUE_DICT:
+                event_dict["penalty"] = PENALTY_VALUE_DICT[e.get_type()]
+            elif e.get_type() in PENALTY_PERC_DICT:
+                event_dict["value"] = round(e.get_dict()['percentage'], 3)
+            event_dict["message"] = e.get_message()
+            event_dict["frame"] = e.get_frame()
+            last_events.append(event_dict)
+            if len(last_events) == 5:
+                break
+
+        data = {
+            "route_id": route_record.route_id,
+            "scores": {
+                "driving_score": round(route_record.scores["score_composed"], 3),
+                "route_completion": round(route_record.scores["score_route"], 3),
+                "infraction_penalty": round(route_record.scores["score_penalty"], 3)
+            },
+            "meta": {
+                "route_length": round(route_record.meta["route_length"], 3),
+                "game_duration": round(route_record.meta["duration_game"], 3),
+                "system_duration": round(route_record.meta["duration_system"], 3)
+            },
+            "ego": {
+                "throttle": round(ego_control.throttle, 3),
+                "brake": round(ego_control.brake, 3),
+                "steer": round(ego_control.steer, 3),
+                "speed_kmh": round(ego_speed * 3.6, 3),
+                "location": {
+                    "x": round(ego_location.x, 3),
+                    "y": round(ego_location.y, 3),
+                    "z": round(ego_location.z, 3)
+                }
+            },
+            "total_infractions": route_record.num_infractions,
+            "last_infractions": last_events
+        }
+
+        # Ensure the save directory exists
+        os.makedirs(save_dir, exist_ok=True)
+
+        filename = os.path.join(save_dir, f"{data['meta']['game_duration']:.3f}.json")
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=4)
+
     def save_sensors(self, sensors):
         self._results.sensors = sensors
 
@@ -339,7 +407,7 @@ class StatisticsManager(object):
         self._scenario = None
         self._route_length = 0
 
-    def compute_route_statistics(self, route_index, duration_time_system=-1, duration_time_game=-1, failure_message=""):
+    def compute_route_statistics(self, route_date_string, route_index, duration_time_system=-1, duration_time_game=-1, failure_message=""):
         """
         Compute the current statistics by evaluating all relevant scenario criteria.
         Failure message will not be empty if an external source has stopped the simulations (i.e simulation crash).
@@ -375,6 +443,7 @@ class StatisticsManager(object):
         route_record.meta['route_length'] = self._route_length
         route_record.meta['duration_game'] = round(duration_time_game, ROUND_DIGITS)
         route_record.meta['duration_system'] = round(duration_time_system, ROUND_DIGITS)
+        route_record.timestamp = route_date_string
 
         # Update the route infractions
         if self._scenario:
@@ -430,6 +499,9 @@ class StatisticsManager(object):
             self._results.checkpoint.records[route_index] = route_record
         else:
             raise ValueError("Not enough entries in the route record")
+        
+        return route_record
+
 
     def compute_global_statistics(self):
         """Computes and saves the global statistics of the routes"""

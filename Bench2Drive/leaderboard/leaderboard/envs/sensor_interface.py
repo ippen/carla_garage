@@ -129,6 +129,37 @@ class OpenDriveMapReader(BaseReader):
     def __call__(self):
         return {'opendrive': CarlaDataProvider.get_map().to_opendrive()}
 
+class EgoLocationReader(BaseReader):
+    """
+    Sensor to measure the location of the vehicle in the CARLA coordinate system.
+    """
+    MAX_CONNECTION_ATTEMPTS = 10
+
+    def _get_location(self, transform=None):
+        """ Get the vehicle's world location. """
+        if not transform:
+            transform = self._vehicle.get_transform()
+        
+        location = transform.location
+        rotation = transform.rotation
+        return {'x': location.x, 'y': location.y, 'z': location.z,
+                'pitch': rotation.pitch, 'yaw': rotation.yaw, 'roll': rotation.roll}
+
+    def __call__(self):
+        """ Retrieve the vehicle's location as a dictionary. """
+        
+        # Protect this access against timeout
+        attempts = 0
+        while attempts < self.MAX_CONNECTION_ATTEMPTS:
+            try:
+                transform = self._vehicle.get_transform()
+                break
+            except Exception:
+                attempts += 1
+                time.sleep(0.2)
+                continue
+        
+        return self._get_location(transform=transform)
 
 class CallBack(object):
     def __init__(self, tag, sensor_type, sensor, data_provider):
