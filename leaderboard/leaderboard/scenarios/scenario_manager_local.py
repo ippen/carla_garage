@@ -14,6 +14,8 @@ from __future__ import print_function
 import signal
 import sys
 import time
+import os
+import json
 
 import py_trees
 import carla
@@ -25,6 +27,55 @@ from srunner.scenariomanager.watchdog import Watchdog
 from leaderboard.autoagents.agent_wrapper_local import AgentWrapper, AgentError
 from leaderboard.envs.sensor_interface import SensorReceivedNoData
 from leaderboard.utils.result_writer import ResultOutputProvider
+
+LOQUITO_RECORDING_DIR = os.environ.get("LOQUITO_RECORDING_DIR")
+
+
+def write_route_statistics_to_json(route_record, filename):
+    """
+    Write the essential route statistics into a structured JSON file.
+    Each infraction will include its ID or timestamp if available.
+    """
+
+    def format_infractions(infractions):
+        formatted = {}
+        for infraction_type, messages in infractions.items():
+            formatted[infraction_type] = []
+            for msg in messages:
+                if isinstance(msg, dict):
+                    # If already a dict, include it as-is
+                    formatted[infraction_type].append(msg)
+                else:
+                    # Otherwise, store as message only
+                    formatted[infraction_type].append({"message": msg})
+        return formatted
+
+    data = {
+        "timestamp": route_record.timestamp,
+        "status": route_record.status,
+        "failure_reason": None,
+        "durations": {
+            "system_time_seconds": route_record.meta.get('duration_system', -1),
+            "game_time_seconds": route_record.meta.get('duration_game', -1),
+        },
+        "route_length_meters": route_record.meta.get('route_length', -1),
+        "scores": {
+            "route_score": route_record.scores.get('score_route', 0.0),
+            "penalty_score": route_record.scores.get('score_penalty', 1.0),
+            "composed_score": route_record.scores.get('score_composed', 0.0),
+        },
+        "infractions": format_infractions(route_record.infractions)
+    }
+
+    # Check if failure reason exists
+    if 'Failed' in route_record.status and '-' in route_record.status:
+        data['failure_reason'] = route_record.status.split('-')[-1].strip()
+
+    with open(filename, 'w') as json_file:
+        json.dump(data, json_file, indent=4)
+
+    print(f"Route statistics written to {filename}")
+
 
 
 class ScenarioManager(object):
@@ -43,9 +94,7 @@ class ScenarioManager(object):
        the scenario execution
     4. If needed, cleanup with manager.stop_scenario()
     """
-
-
-    def __init__(self, timeout, debug_mode=False):
+    def __init__(self, timeout, debug_mode=False, statistics_manager=None):
         """
         Setups up the parameters, which will be filled at load_scenario()
         """
@@ -75,6 +124,8 @@ class ScenarioManager(object):
         self.end_system_time = None
         self.end_game_time = None
 
+        self._statistics_manager = statistics_manager
+
         # Register the scenario tick as callback for the CARLA world
         # Use the callback_id inside the signal handler to allow external interrupts
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -96,7 +147,7 @@ class ScenarioManager(object):
         self.end_system_time = None
         self.end_game_time = None
 
-    def load_scenario(self, scenario, agent, rep_number):
+    def load_scenario(self, scenario, agent, rep_number, route_date_string=""):
         """
         Load a new scenario
         """
@@ -115,7 +166,13 @@ class ScenarioManager(object):
 
         self._agent.setup_sensors(self.ego_vehicles[0], self._debug_mode)
 
-    def run_scenario(self):
+        if LOQUITO_RECORDING_DIR:
+            time_str = time.strftime("%Y-%m-%d_%H-%M-%S")
+            self.recording_dir = os.path.join(LOQUITO_RECORDING_DIR, "scenario", time_str, route_date_string)
+            os.makedirs(self.recording_dir, exist_ok=True)
+            self.route_date_string = route_date_string
+
+    def run_scenario(self, config=None):
         """
         Trigger the start of the scenario and wait for it to finish/fail
         """
@@ -133,9 +190,9 @@ class ScenarioManager(object):
                 if snapshot:
                     timestamp = snapshot.timestamp
             if timestamp:
-                self._tick_scenario(timestamp)
+                self._tick_scenario(timestamp, config=config)
 
-    def _tick_scenario(self, timestamp):
+    def _tick_scenario(self, timestamp, config=None):
         """
         Run next tick of scenario and the agent and tick the world.
         """
@@ -162,6 +219,12 @@ class ScenarioManager(object):
 
             # Tick scenario
             self.scenario_tree.tick_once()
+
+            if LOQUITO_RECORDING_DIR:
+                # Write route statistics to file
+                game_time = GameTime.get_time()
+                save_path = os.path.join(self.recording_dir, f"{game_time:.3f}.json")
+                self._statistics_manager.compute_and_save_route_statistics(config, self.route_date_string, GameTime.get_time(), save_path)
 
             if self._debug_mode:
                 print("\n")

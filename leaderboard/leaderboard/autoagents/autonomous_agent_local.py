@@ -110,7 +110,7 @@ class AutonomousAgent(object):
         wallclock = GameTime.get_wallclocktime()
         wallclock_diff = (wallclock - self.wallclock_t0).total_seconds()
 
-        # print('======[Agent] Wallclock_time = {} / {} / Sim_time = {} / {}x'.format(wallclock, wallclock_diff, timestamp, timestamp/(wallclock_diff+0.001)))
+        print('======[Agent] Wallclock_time = {} / {} / Sim_time = {} / {}x'.format(wallclock, wallclock_diff, timestamp, timestamp/(wallclock_diff+0.001)))
 
         control = self.run_step(input_data, timestamp, sensors)
         control.manual_gear_shift = False
@@ -121,6 +121,8 @@ class AutonomousAgent(object):
         """
         Set the plan (route) for the agent
         """
+        self.org_dense_route_gps = global_plan_gps
+        self.org_dense_route_world_coord = global_plan_world_coord
         ds_ids = downsample_route(global_plan_world_coord, 50)
         self._global_plan_world_coord = [(global_plan_world_coord[x][0], global_plan_world_coord[x][1]) for x in ds_ids]
         self._global_plan = [global_plan_gps[x] for x in ds_ids]

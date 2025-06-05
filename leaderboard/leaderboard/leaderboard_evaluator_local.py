@@ -38,6 +38,8 @@ from leaderboard.utils.route_indexer import RouteIndexer
 
 import pathlib
 
+sys.path.append("/home/ippen/workspace/projects/carla_garage/team_code_loquito")
+
 sensors_to_icons = {
     'sensor.camera.rgb':        'carla_camera',
     'sensor.lidar.ray_cast':    'carla_lidar',
@@ -46,11 +48,10 @@ sensors_to_icons = {
     'sensor.other.imu':         'carla_imu',
     'sensor.opendrive_map':     'carla_opendrive_map',
     'sensor.speedometer':       'carla_speedometer',
-    'sensor.stitch_camera.rgb': 'carla_camera',  # for local World on Rails evaluation
+    'sensor.egolocation':       'carla_egolocation',
     'sensor.camera.semantic_segmentation': 'carla_camera', # for datagen
     'sensor.camera.depth':      'carla_camera', # for datagen
 }
-
 
 class LeaderboardEvaluator(object):
 
@@ -102,7 +103,7 @@ class LeaderboardEvaluator(object):
         self.module_agent = importlib.import_module(module_name)
 
         # Create the ScenarioManager
-        self.manager = ScenarioManager(args.timeout, args.debug > 1)
+        self.manager = ScenarioManager(args.timeout, args.debug > 1, statistics_manager=self.statistics_manager)
 
         # Time control for summary purposes
         self._start_time = GameTime.get_time()
@@ -349,7 +350,7 @@ class LeaderboardEvaluator(object):
             # Load scenario and run it
             if args.record:
                 self.client.start_recorder("{}/{}_rep{}.log".format(args.record, config.name, config.repetition_index))
-            self.manager.load_scenario(scenario, self.agent_instance, config.repetition_index)
+            self.manager.load_scenario(scenario, self.agent_instance, config.repetition_index, route_date_string=route_date_string)
 
         except Exception as e:
             # The scenario is wrong -> set the ejecution to crashed and stop
@@ -368,11 +369,14 @@ class LeaderboardEvaluator(object):
             self._cleanup(result)
             sys.exit(-1)
 
+        print("\033[1m> Setup navigator of Loquito\033[0m")
+        self.agent_instance.setup_navigator()
+
         print("\033[1m> Running the route\033[0m")
 
         # Run the scenario
         try:
-            self.manager.run_scenario()
+            self.manager.run_scenario(config=config)
 
         except AgentError as e:
             # The agent has failed -> stop the route

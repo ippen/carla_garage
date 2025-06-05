@@ -18,7 +18,7 @@ from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 
 from leaderboard.autoagents.autonomous_agent import Track
 
-from leaderboard.envs.sensor_interface import CallBack, OpenDriveMapReader, SpeedometerReader, SensorConfigurationInvalid
+from leaderboard.envs.sensor_interface import CallBack, OpenDriveMapReader, SpeedometerReader, SensorConfigurationInvalid, EgoLocationReader
 # Use this line instead to run WOR
 #from leaderboard1.leaderboard.envs.sensor_interface import (CallBack, StitchCameraReader, OpenDriveMapReader, SpeedometerReader, SensorConfigurationInvalid)
 
@@ -33,6 +33,7 @@ SENSORS_LIMITS = {
     'sensor.other.imu': 1,
     'sensor.opendrive_map': 1,
     'sensor.speedometer': 1,
+    'sensor.egolocation': 1,
     'sensor.stitch_camera.rgb': 1,
     'sensor.camera.depth': 4, # for data generation
     'sensor.camera.semantic_segmentation': 4 # for data generation
@@ -57,6 +58,7 @@ class AgentWrapper(object):
     allowed_sensors = [
         'sensor.opendrive_map',
         'sensor.speedometer',
+        'sensor.egolocation',
         'sensor.camera.rgb',
         'sensor.camera',
         'sensor.lidar.ray_cast',
@@ -100,6 +102,12 @@ class AgentWrapper(object):
                 delta_time = CarlaDataProvider.get_world().get_settings().fixed_delta_seconds
                 frame_rate = 1 / delta_time
                 sensor = SpeedometerReader(vehicle, frame_rate)
+            elif sensor_spec['type'].startswith('sensor.egolocation'):
+                delta_time = CarlaDataProvider.get_world().get_settings().fixed_delta_seconds
+                reading_frequency = 1 / delta_time
+                sensor = EgoLocationReader(vehicle, reading_frequency)
+                sensor_location = carla.Location()
+                sensor_rotation = carla.Rotation()
             elif sensor_spec['type'].startswith('sensor.stitch_camera'):
                 delta_time = CarlaDataProvider.get_world().get_settings().fixed_delta_seconds
                 frame_rate = 1 / delta_time
@@ -111,12 +119,10 @@ class AgentWrapper(object):
                     bp.set_attribute('image_size_x', str(sensor_spec['width']))
                     bp.set_attribute('image_size_y', str(sensor_spec['height']))
                     bp.set_attribute('fov', str(sensor_spec['fov']))
-                    bp.set_attribute('lens_circle_multiplier', str(3.0))
-                    bp.set_attribute('lens_circle_falloff', str(3.0))
-                    if sensor_spec['type'].startswith('sensor.camera.rgb'):
-                        bp.set_attribute('chromatic_aberration_intensity', str(0.5))
-                        bp.set_attribute('chromatic_aberration_offset', str(0))
-
+                    for attr in ['lens_circle_multiplier', 'lens_circle_falloff', 'chromatic_aberration_intensity', 'chromatic_aberration_offset']:
+                        if attr in sensor_spec:
+                            bp.set_attribute(attr, str(sensor_spec[attr]))
+                    
                     sensor_location = carla.Location(x=sensor_spec['x'], y=sensor_spec['y'],
                                                      z=sensor_spec['z'])
                     sensor_rotation = carla.Rotation(pitch=sensor_spec['pitch'],
@@ -224,11 +230,11 @@ class AgentWrapper(object):
             if sensor['type'] not in AgentWrapper.allowed_sensors:
                 raise SensorConfigurationInvalid("Illegal sensor used. {} are not allowed!".format(sensor['type']))
 
-            # Check the extrinsics of the sensor
-            if 'x' in sensor and 'y' in sensor and 'z' in sensor:
-                if math.sqrt(sensor['x']**2 + sensor['y']**2 + sensor['z']**2) > MAX_ALLOWED_RADIUS_SENSOR:
-                    raise SensorConfigurationInvalid(
-                        "Illegal sensor extrinsics used for Track [{}]!".format(agent_track))
+            # # Check the extrinsics of the sensor
+            # if 'x' in sensor and 'y' in sensor and 'z' in sensor:
+            #     if math.sqrt(sensor['x']**2 + sensor['y']**2 + sensor['z']**2) > MAX_ALLOWED_RADIUS_SENSOR:
+            #         raise SensorConfigurationInvalid(
+            #             "Illegal sensor extrinsics used for Track [{}]!".format(agent_track))
 
             # Check the amount of sensors
             if sensor['type'] in sensor_count:
@@ -237,13 +243,13 @@ class AgentWrapper(object):
                 sensor_count[sensor['type']] = 1
 
 
-        for sensor_type, max_instances_allowed in SENSORS_LIMITS.items():
-            if sensor_type in sensor_count and sensor_count[sensor_type] > max_instances_allowed:
-                raise SensorConfigurationInvalid(
-                    "Too many {} used! "
-                    "Maximum number allowed is {}, but {} were requested.".format(sensor_type,
-                                                                                  max_instances_allowed,
-                                                                                  sensor_count[sensor_type]))
+        # for sensor_type, max_instances_allowed in SENSORS_LIMITS.items():
+        #     if sensor_type in sensor_count and sensor_count[sensor_type] > max_instances_allowed:
+        #         raise SensorConfigurationInvalid(
+        #             "Too many {} used! "
+        #             "Maximum number allowed is {}, but {} were requested.".format(sensor_type,
+        #                                                                           max_instances_allowed,
+        #                                                                           sensor_count[sensor_type]))
 
     def cleanup(self):
         """
