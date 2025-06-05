@@ -51,7 +51,7 @@ class LoquitoAgent(AutonomousAgent):
         self.min_actuation = 0.25
         self.deadband = 0.05
         self.stopping_threshold = 0.9
-        self.velocity_error_gain = 0.5
+        self.velocity_error_gain = 0.75
 
         if LOQUITO_RECORDING_DIR:
             time_str = time.strftime("%Y-%m-%d_%H-%M-%S")
