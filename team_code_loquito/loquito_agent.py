@@ -21,6 +21,8 @@ from loquito.lib.transforms import process_waypoints_in_cs0, get_waypoint_diff
 
 LOQUITO_RECORDING_DIR = os.getenv("LOQUITO_RECORDING_DIR")
 LOQUITO_LIVE_RESULTS = os.getenv("LOQUITO_LIVE_RESULTS")
+LOQUITO_MODEL_PATH = os.getenv("LOQUITO_MODEL_PATH")
+LOQUITO_CUDA_DEVICE = os.getenv("LOQUITO_CUDA_DEVICE", "cuda:0")
 
 def get_entry_point():
     return 'LoquitoAgent'
@@ -31,11 +33,9 @@ class LoquitoAgent(AutonomousAgent):
         Initialize agent, load model, and setup configurations.
         """
         self.track = Track.SENSORS
-        self.device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(LOQUITO_CUDA_DEVICE if torch.cuda.is_available() else "cpu")
 
-        model_path = "/work/data01/ippen/data/models/loquito_v1m_hd/2025-04-04_23-22-30/model_epoch_3_torchscript.pt"
-
-        self.model, extra_files = load_torchscript_model(model_path, self.device)
+        self.model, extra_files = load_torchscript_model(LOQUITO_MODEL_PATH, self.device)
         self.image_size = eval(extra_files["image_size"])
 
         self.supersample_factor = 10 # Corresponds to delta_seconds/supersample_factor = 0.05 seconds per timestep (default of carla leaderboard)
@@ -63,7 +63,7 @@ class LoquitoAgent(AutonomousAgent):
             # Save metadata
             metadata = {
                 "route_index": route_index,
-                "model_path": model_path,
+                "model_path": LOQUITO_MODEL_PATH,
                 "image_size": self.image_size,
                 "supersample_factor": self.supersample_factor,
                 "delta_seconds": self.delta_seconds,
@@ -242,9 +242,9 @@ class LoquitoAgent(AutonomousAgent):
 
             throttle, steer, brake = self._compute_control(pred_waypoint_deltas, pred_stop, pred_steer, current_velocity)
 
-        print("HELLO from LoquitoAgent")
+        # print("Hola from LoquitoAgent")
         if LOQUITO_RECORDING_DIR:
-            print("Recording data")
+            # print("Recording data")
             self.executor.submit(self.save, input_data, idx, timestamp, target_waypoint,
                      [target_x_in_cs0, target_y_in_cs0], throttle, steer, brake,
                      pred_waypoint_deltas, pred_waypoints, pred_stop, pred_steer,
